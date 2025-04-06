@@ -16,7 +16,8 @@ from crosscode.log import logger
 from crosscode.models.base_crosscoder import BaseCrosscoder
 from crosscode.trainers.config_common import BaseExperimentConfig, BaseTrainConfig
 from crosscode.trainers.firing_tracker import FiringTracker
-from crosscode.trainers.utils import build_lr_scheduler, build_optimizer, dict_join, wandb_histogram, get_device, build_wandb_run
+from crosscode.trainers.utils import build_lr_scheduler, build_optimizer, dict_join, wandb_histogram, build_wandb_run
+from crosscode.utils import get_device
 
 TConfig = TypeVar("TConfig", bound=BaseTrainConfig)
 TModel = TypeVar("TModel", bound=BaseCrosscoder[Any])
