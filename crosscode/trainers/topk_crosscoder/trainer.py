@@ -2,6 +2,7 @@ from collections.abc import Callable
 from typing import Any
 
 import torch
+import torch.nn.functional as F
 
 from crosscode.models.acausal_crosscoder import ModelHookpointAcausalCrosscoder
 from crosscode.models.activations.topk import (
@@ -29,10 +30,21 @@ class TopKStyleAcausalCrosscoderTrainer(
         loss = reconstruction_loss + self.cfg.lambda_aux * aux_loss
 
         if log:
+            # Calculate MSE
+            mse = F.mse_loss(batch_BMPD, train_res.recon_acts_BMPD)
+            
+            # Calculate cosine similarity
+            # Flatten the tensors to compute cosine similarity across all dimensions
+            batch_flat = batch_BMPD.reshape(batch_BMPD.shape[0], -1)
+            recon_flat = train_res.recon_acts_BMPD.reshape(train_res.recon_acts_BMPD.shape[0], -1)
+            cosine_sim = F.cosine_similarity(batch_flat, recon_flat, dim=1).mean()
+
             log_dict: dict[str, Any] = {
                 "train/loss": loss.item(),
                 "train/reconstruction_loss": reconstruction_loss.item(),
                 "train/aux_loss": aux_loss.item(),
+                "train/reconstruction_mse": mse.item(),
+                "train/reconstruction_cosine_sim": cosine_sim.item(),
                 **self._get_fvu_dict(batch_BMPD, train_res.recon_acts_BMPD),
             }
 
