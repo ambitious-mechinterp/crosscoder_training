@@ -1,28 +1,27 @@
 data:
   token_sequence_loader:
-    hf_dataset_name: "monology/pile-uncopyrighted"
-    sequence_length: 256
+    hf_dataset_name: "HuggingFaceFW/fineweb"
+    sequence_length: 512
   activations_harvester:
     llms:
       # - name: EleutherAI/pythia-160M
       #   revision: step142000
-      - name: EleutherAI/pythia-160M
-        revision: step143000 # last checkpoint
+      - name: gemma-2-2b
     harvesting_batch_size: 1
 crosscoder:
-  n_latents: 4096
-  k: 19
+  n_latents: 18432
+  k: 120
   use_encoder_bias: True
   use_decoder_bias: True
 train:
-  num_steps: 3000
-  batch_size: 512
+  num_steps: 5000
+  batch_size: 64
   save_every_n_steps: 3000
   log_every_n_steps: 10
   topk_style: "batch_topk"
   lambda_aux: 0.1
-experiment_name: "twolayers_btk_can_run_question22"
-hookpoints: ["blocks.7.hook_resid_post","blocks.8.hook_resid_post"]
+experiment_name: "gemmarun1"
+hookpoints: [""blocks.16.hook_resid_post","blocks.17.hook_resid_post","blocks.18.hook_resid_post","blocks.19.hook_resid_post"]
 wandb:
   entity: tim_hua
   project: acausal_cc_tests

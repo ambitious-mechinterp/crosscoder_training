@@ -101,6 +101,7 @@ class BaseExperimentConfig(BaseModel):
     wandb: WandbConfig = WandbConfig()
     experiment_name: str
     data: DataConfig
+    cuda_device: int | None = None  # Optional CUDA device index to use
 
     @property
     def save_dir(self) -> Path:

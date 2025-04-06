@@ -16,7 +16,7 @@ from crosscode.log import logger
 from crosscode.models.base_crosscoder import BaseCrosscoder
 from crosscode.trainers.config_common import BaseExperimentConfig, BaseTrainConfig
 from crosscode.trainers.firing_tracker import FiringTracker
-from crosscode.trainers.utils import build_lr_scheduler, build_optimizer, dict_join, wandb_histogram
+from crosscode.trainers.utils import build_lr_scheduler, build_optimizer, dict_join, wandb_histogram, get_device, build_wandb_run
 
 TConfig = TypeVar("TConfig", bound=BaseTrainConfig)
 TModel = TypeVar("TModel", bound=BaseCrosscoder[Any])
@@ -153,6 +153,8 @@ def run_exp(build_trainer: Callable[[TCfg], Any], cfg_cls: type[TCfg]) -> Callab
         logger.info(f"saving in save_dir: {config.save_dir}")
         save_config(config)
         logger.info("Building trainer")
+        device = get_device(cuda_device=config.cuda_device if hasattr(config, 'cuda_device') else None)
+        wandb_run = build_wandb_run(config)
         trainer = build_trainer(config)
         logger.info("Training")
         trainer.train()

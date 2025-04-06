@@ -1,5 +1,5 @@
 .vscode/settings.json
-
+random.ipynb
 wandb/
 .data/
 .checkpoints/

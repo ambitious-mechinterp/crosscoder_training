@@ -77,8 +77,14 @@ def calculate_reconstruction_loss_summed_norm_MSEs(
     return summed_squared_error_norm_B.mean()
 
 
-def get_device() -> torch.device:
-    return torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
+def get_device(cuda_device: int | None = None) -> torch.device:
+    if torch.cuda.is_available():
+        if cuda_device is not None:
+            return torch.device(f"cuda:{cuda_device}")
+        return torch.device("cuda")
+    if torch.backends.mps.is_available():
+        return torch.device("mps")
+    return torch.device("cpu")
 
 
 # deprecated, see https://www.lesswrong.com/posts/ZBjhp6zwfE8o8yfni/#Rm8xDeB95fb2usorb for a discussion of this

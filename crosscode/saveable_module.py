@@ -16,8 +16,10 @@ from pathlib import Path
 from typing import Any
 
 import torch
-import yaml  # type: ignore
+import yaml
 from torch import nn
+
+from crosscode.yaml_utils import dtype_representer  # This will register the handlers
 
 if sys.version_info.minor < 11:
     Self = Any
@@ -40,7 +42,7 @@ class SaveableModule(nn.Module, ABC):
         basepath.mkdir(parents=True, exist_ok=True)
         torch.save(self.state_dict(), basepath / self.STATE_DICT_FNAME)
         with open(basepath / self.MODEL_CFG_FNAME, "w") as f:
-            yaml.dump(self._dump_cfg(), f)
+            yaml.dump(self._dump_cfg(), f, Dumper=yaml.SafeDumper)
 
     @classmethod
     def load(cls: type[Self], basepath: Path | str, device: torch.device | str = "cpu") -> Self:
