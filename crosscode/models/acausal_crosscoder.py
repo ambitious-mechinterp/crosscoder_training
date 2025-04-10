@@ -106,7 +106,7 @@ class ModelHookpointAcausalCrosscoder(Generic[TActivation], BaseCrosscoder[TActi
             activation_fn=activation_fn,
             use_encoder_bias=cfg["use_encoder_bias"],
             use_decoder_bias=cfg["use_decoder_bias"],
-            dtype=DTYPE_FROM_STRING[cfg["dtype"]],
+            dtype=DTYPE_FROM_STRING[cfg["dtype"]] if type(cfg["dtype"]) == str else cfg["dtype"],
         )
 
     def fold_activation_scaling_into_weights_(self, scaling_factors_out_MP: torch.Tensor) -> None:

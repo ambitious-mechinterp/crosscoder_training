@@ -60,11 +60,17 @@ class BaseTrainer(Generic[TConfig, TModel, TBatch], ABC):
         # scaling_factors_MP = self.activations_dataloader.get_norm_scaling_factors_MP().to(self.device)
         epoch_dataloader = self.activations_dataloader.get_activations_iterator()
 
-        for _ in tqdm(
+        for i in tqdm(
             range(self.cfg.num_steps),
             desc="Train Steps",
             smoothing=0.15,  # this loop is bursty because of activation harvesting
         ):
+            if i == 0:
+                print('Started training, verify dec enc are transposes')
+                enc_1 = self.model.W_enc_MPDL[0,0]
+                dec_1 = self.model.W_dec_LMPD[:,0,0,:]
+                assert torch.allclose(dec_1.T, enc_1), f'Dec enc not close, see enc{enc_1[:10,:10]} and dec {dec_1[:10,:10]}'
+                print('All close!')
             self._lr_step()
             self.optimizer.zero_grad()
 
