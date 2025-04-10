@@ -43,6 +43,7 @@ class TopKStyleAcausalCrosscoderTrainer(
                 "train/loss": loss.item(),
                 "train/reconstruction_loss": reconstruction_loss.item(),
                 "train/aux_loss": aux_loss.item(),
+                "train/n_dead_latents": torch.sum(self.firing_tracker.tokens_since_fired_L > self.cfg.dead_latents_threshold_n_examples).item(),
                 "train/reconstruction_mse": mse.item(),
                 "train/reconstruction_cosine_sim": cosine_sim.item(),
                 **self._get_fvu_dict(batch_BMPD, train_res.recon_acts_BMPD),

@@ -42,7 +42,7 @@ def build_trainer(cfg: TopKAcausalCrosscoderExperimentConfig) -> TopKStyleAcausa
         use_encoder_bias=cfg.crosscoder.use_encoder_bias,
         use_decoder_bias=cfg.crosscoder.use_decoder_bias,
     )
-
+    print('Load crosscoder to device')
     crosscoder = crosscoder.to(device)
 
     wandb_run = build_wandb_run(cfg)

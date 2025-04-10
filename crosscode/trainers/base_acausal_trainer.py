@@ -60,6 +60,9 @@ class BaseModelHookpointAcausalTrainer(
         if self.cfg.save_every_n_steps is not None and self.step % self.cfg.save_every_n_steps == 0:
             checkpoint_path = self.save_dir / f"epoch_{self.epoch}_step_{self.step}"
 
+            # Clear CUDA cache before saving
+            torch.cuda.empty_cache()
+
             scaling_factors_MP = self.activations_dataloader.get_scaling_factors().to(self.device)
             self.model.with_folded_scaling_factors(scaling_factors_MP).save(checkpoint_path)
 

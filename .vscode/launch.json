@@ -12,6 +12,20 @@
             "console": "integratedTerminal",
             "args": "${command:pickArgs}",
             "justMyCode": false
+        },
+        {
+            "name": "Debug TopK Crosscoder with Gemma Config",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/crosscode/trainers/topk_crosscoder/run.py",
+            "console": "integratedTerminal",
+            "args": ["${workspaceFolder}/crosscode/trainers/topk_crosscoder/gemma_configs.yaml"],
+            "justMyCode": false,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            },
+            "python": "${workspaceFolder}/.venv/bin/python",
+            "logToFile": true
         }
     ]
 }

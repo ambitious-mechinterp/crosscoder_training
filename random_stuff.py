@@ -1,0 +1,2 @@
+from crosscode.models.acausal_crosscoder import *
+inited_cc = ModelHookpointAcausalCrosscoder.load('/home/tim/crosscoder_training/.checkpoints/less_layers_w_n_dead_latents_2025-04-09_21-29-32/epoch_0_step_0', 'cuda')

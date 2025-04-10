@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from typing import Any, Generic, Self, cast
-
+from crosscode.llms import DTYPE_FROM_STRING
 import torch
 from torch import nn
 
@@ -106,7 +106,7 @@ class ModelHookpointAcausalCrosscoder(Generic[TActivation], BaseCrosscoder[TActi
             activation_fn=activation_fn,
             use_encoder_bias=cfg["use_encoder_bias"],
             use_decoder_bias=cfg["use_decoder_bias"],
-            dtype=cfg["dtype"],
+            dtype=DTYPE_FROM_STRING[cfg["dtype"]],
         )
 
     def fold_activation_scaling_into_weights_(self, scaling_factors_out_MP: torch.Tensor) -> None:
