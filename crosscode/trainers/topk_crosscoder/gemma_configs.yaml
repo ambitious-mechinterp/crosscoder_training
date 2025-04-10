@@ -9,21 +9,29 @@ data:
       - name: google/gemma-2-2b
     harvesting_batch_size: 1
 crosscoder:
-  n_latents: 32768
-  k: 150
+  n_latents: 20000
+  k: 125
   use_encoder_bias: True
   use_decoder_bias: True
 cuda_device: 1 #doesnt work lmao
 train:
   num_steps: 30000
   batch_size: 128
+  gradient_accumulation_steps_per_batch: 1
   save_every_n_steps: 3000
   log_every_n_steps: 10
   topk_style: "batch_topk"
   lambda_aux: 0.5
+  dead_latents_threshold_n_examples: 10_000
   upload_saves_to_wandb: false
-experiment_name: "gemmarun3"
+  optimizer:
+    type: "adam"
+    betas: [0.9, 0.99]
+    learning_rate: 5e-5
+    warmup_pct: 0.05
+    warmdown_pct: 0.2
+experiment_name: "adamwmomentum3"
 hookpoints: ["blocks.12.hook_resid_post","blocks.13.hook_resid_post","blocks.14.hook_resid_post","blocks.15.hook_resid_post","blocks.16.hook_resid_post", "blocks.17.hook_resid_post", "blocks.18.hook_resid_post", "blocks.19.hook_resid_post","blocks.20.hook_resid_post","blocks.21.hook_resid_post"]
 wandb:
-  entity: tim_hua
+  entity: jnainani-university-of-massachusetts-amherst
   project: acausal_cc_tests
