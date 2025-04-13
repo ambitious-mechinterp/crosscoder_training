@@ -77,36 +77,38 @@ class TokenSequenceLoader:
         self._batch_size = batch_size
 
     def _get_sequence_iterator_S(self) -> Iterator[torch.Tensor]:
-        example_S = torch.empty(self._sequence_length, dtype=torch.long)
-        example_pointer = 0
+        bos_token_id = self._tokenizer.bos_token_id
+        if bos_token_id is None:
+            raise ValueError("Tokenizer must have a BOS token defined")
 
         for example in self._hf_dataset:
             text = cast(dict[str, Any], example)["text"]
-            tokens = self._tokenizer(text, return_tensors="pt")["input_ids"]
+            # Get tokens without padding
+            tokens = self._tokenizer(text, return_tensors="pt", padding=False,add_special_tokens = False)["input_ids"]
             tokens = cast(torch.Tensor, tokens)
             assert len(tokens.shape) == 2, f"tokens.shape should be 2D but was {tokens.shape}"
             assert tokens.shape[0] == 1, f"tokens.shape should have a batch dimension of 1 but was {tokens.shape}"
 
             seq_tokens_S = tokens.squeeze(0)
-            seq_pointer = 0
+            # Calculate how many complete sequences we can make (leaving room for BOS token)
+            num_complete_sequences = (len(seq_tokens_S)) // (self._sequence_length - 1)
+            
+            if num_complete_sequences == 0:
+                continue
 
-            while seq_pointer < seq_tokens_S.shape[0]:
-                tokens_left_to_fill_example = example_S.shape[0] - example_pointer
-                tokens_left_in_seq = seq_tokens_S.shape[0] - seq_pointer
+            # Truncate to only include complete sequences
+            usable_length = num_complete_sequences * (self._sequence_length - 1)
+            seq_tokens_S = seq_tokens_S[:usable_length]
 
-                tokens_to_copy = min(tokens_left_to_fill_example, tokens_left_in_seq)
+            # Reshape into sequences of length sequence_length - 1
+            sequences = seq_tokens_S.reshape(num_complete_sequences, self._sequence_length - 1)
 
-                example_S[example_pointer : example_pointer + tokens_to_copy] = (  #
-                    seq_tokens_S[seq_pointer : seq_pointer + tokens_to_copy]
-                )
-
-                # this is always valid because of the `min` above
-                example_pointer += tokens_to_copy
-                seq_pointer += tokens_to_copy
-
-                if example_pointer == self._sequence_length:
-                    example_pointer = 0
-                    yield example_S
+            # For each sequence, prepend BOS token
+            for seq in sequences:
+                complete_sequence = torch.empty(self._sequence_length, dtype=torch.long)
+                complete_sequence[0] = bos_token_id
+                complete_sequence[1:] = seq
+                yield complete_sequence
 
     @cached_property
     def _get_sequences_batch_iterator(self) -> Iterator[TokensSequenceBatch]:
