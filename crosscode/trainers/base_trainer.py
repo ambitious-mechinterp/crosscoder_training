@@ -1,6 +1,6 @@
 import os
 from abc import ABC, abstractmethod
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Generic, TypeVar
@@ -11,7 +11,7 @@ from torch.nn.utils import clip_grad_norm_
 from tqdm import tqdm  # type: ignore
 from wandb.sdk.wandb_run import Run
 
-from crosscode.data.activations_dataloader import ActivationsDataloader
+from crosscode.data.activations_dataloader import ActivationsDataloader, ModelHookpointActivationsBatch
 from crosscode.log import logger
 from crosscode.models.base_crosscoder import BaseCrosscoder
 from crosscode.trainers.config_common import BaseExperimentConfig, BaseTrainConfig
@@ -22,6 +22,80 @@ from crosscode.utils import get_device
 TConfig = TypeVar("TConfig", bound=BaseTrainConfig)
 TModel = TypeVar("TModel", bound=BaseCrosscoder[Any])
 TBatch = TypeVar("TBatch")
+
+
+class BufferedModelHookpointActivationsDataloader(ActivationsDataloader[ModelHookpointActivationsBatch]):
+    """A dataloader that buffers multiple batches and shuffles them before yielding.
+    
+    This provides better shuffling by mixing data across multiple batches while maintaining
+    the original batch size and tensor structure.
+    """
+    
+    def __init__(
+        self,
+        base_dataloader: ActivationsDataloader[ModelHookpointActivationsBatch],
+        buffer_size: int = 20,
+    ):
+        """Initialize the buffered dataloader.
+        
+        Args:
+            base_dataloader: The base dataloader to buffer batches from
+            buffer_size: Number of batches to collect before shuffling
+        """
+        self.base_dataloader = base_dataloader
+        self.buffer_size = buffer_size
+        self._base_iterator = None
+        
+    def get_activations_iterator(self) -> Iterator[ModelHookpointActivationsBatch]:
+        """Get an iterator that yields shuffled batches from the buffer."""
+        base_iterator = self.base_dataloader.get_activations_iterator()
+        
+        while True:
+            # Collect buffer_size batches
+            buffer_batches = []
+            for _ in range(self.buffer_size):
+                try:
+                    batch = next(base_iterator)
+                    buffer_batches.append(batch.activations_BMPD)
+                except StopIteration:
+                    if not buffer_batches:  # If buffer is empty, we're done
+                        return
+                    break
+            
+            if not buffer_batches:  # If we couldn't collect any batches, we're done
+                return
+                
+            try:
+                # Stack all batches along the batch dimension
+                combined_tensor = torch.cat(buffer_batches, dim=0)  # Shape: (buffer_size*B, M, P, D)
+                
+                # Get the total number of samples in the buffer
+                total_samples = combined_tensor.shape[0]
+                
+                # Create a random permutation of indices
+                indices = torch.randperm(total_samples)
+                
+                # Original batch size from the base dataloader
+                original_batch_size = buffer_batches[0].shape[0]
+                
+                # Yield shuffled batches of the original batch size
+                for i in range(0, total_samples, original_batch_size):
+                    batch_indices = indices[i:i + original_batch_size]
+                    if len(batch_indices) < original_batch_size:
+                        # Skip the last batch if it's smaller than the original batch size
+                        continue
+                    shuffled_batch = combined_tensor[batch_indices]
+                    yield ModelHookpointActivationsBatch(shuffled_batch)
+            except RuntimeError as e:
+                if "out of memory" in str(e):
+                    logger.warning("CUDA out of memory while buffering batches. Reducing buffer size...")
+                    self.buffer_size = max(1, self.buffer_size // 2)
+                    continue
+                raise
+
+    def get_scaling_factors(self) -> torch.Tensor:
+        """Get the scaling factors from the base dataloader."""
+        return self.base_dataloader.get_scaling_factors()
 
 
 class BaseTrainer(Generic[TConfig, TModel, TBatch], ABC):
@@ -35,9 +109,17 @@ class BaseTrainer(Generic[TConfig, TModel, TBatch], ABC):
         wandb_run: Run,
         device: torch.device,
         save_dir: Path | str,
+        buffer_size: int | None = None,
     ):
         self.cfg = cfg
-        self.activations_dataloader = activations_dataloader
+        # Wrap the dataloader with buffering if buffer_size is specified
+        if buffer_size is not None and isinstance(activations_dataloader, ActivationsDataloader[ModelHookpointActivationsBatch]):
+            self.activations_dataloader = BufferedModelHookpointActivationsDataloader(
+                activations_dataloader,
+                buffer_size=buffer_size
+            )
+        else:
+            self.activations_dataloader = activations_dataloader
 
         self.model = model
         self.wandb_run = wandb_run
@@ -99,7 +181,7 @@ class BaseTrainer(Generic[TConfig, TModel, TBatch], ABC):
 
             self._maybe_save_model()
 
-            clip_grad_norm_(self.model.parameters(), 1.0)
+            #clip_grad_norm_(self.model.parameters(), 1.0)
             self.optimizer.step()
             self.step += 1
 

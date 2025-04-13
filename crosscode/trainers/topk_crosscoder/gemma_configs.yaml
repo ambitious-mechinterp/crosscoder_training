@@ -32,7 +32,7 @@ train:
     learning_rate: 5e-5
     warmup_pct: 0.05
     warmdown_pct: 0.05
-experiment_name: "btopk_right_nos"
+experiment_name: "added_activations_buffer"
 hookpoints: ["blocks.12.hook_resid_post","blocks.13.hook_resid_post","blocks.14.hook_resid_post"] #,"blocks.15.hook_resid_post","blocks.16.hook_resid_post", "blocks.17.hook_resid_post", "blocks.18.hook_resid_post", "blocks.19.hook_resid_post","blocks.20.hook_resid_post","blocks.21.hook_resid_post"]
 wandb:
   entity: jnainani-university-of-massachusetts-amherst
