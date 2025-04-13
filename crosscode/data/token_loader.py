@@ -81,7 +81,7 @@ class TokenSequenceLoader:
         example_pointer = 0
 
         for example in self._hf_dataset:
-            text = cast(dict[str, Any], example)["content"]
+            text = cast(dict[str, Any], example)["text"]
             tokens = self._tokenizer(text, return_tensors="pt")["input_ids"]
             tokens = cast(torch.Tensor, tokens)
             assert len(tokens.shape) == 2, f"tokens.shape should be 2D but was {tokens.shape}"
