@@ -45,6 +45,21 @@ class BufferedModelHookpointActivationsDataloader(ActivationsDataloader[ModelHoo
         self.base_dataloader = base_dataloader
         self.buffer_size = buffer_size
         self._base_iterator = None
+
+    @property
+    def n_models(self) -> int:
+        """Number of models in the dataloader."""
+        return self.base_dataloader.n_models
+
+    @property
+    def hookpoints(self) -> list[str]:
+        """List of hookpoints in the dataloader."""
+        return self.base_dataloader.hookpoints
+
+    @property
+    def n_hookpoints(self) -> int:
+        """Number of hookpoints in the dataloader."""
+        return self.base_dataloader.n_hookpoints
         
     def get_activations_iterator(self) -> Iterator[ModelHookpointActivationsBatch]:
         """Get an iterator that yields shuffled batches from the buffer."""
@@ -109,11 +124,11 @@ class BaseTrainer(Generic[TConfig, TModel, TBatch], ABC):
         wandb_run: Run,
         device: torch.device,
         save_dir: Path | str,
-        buffer_size: int | None = None,
+        buffer_size: int | None = 20,
     ):
         self.cfg = cfg
         # Wrap the dataloader with buffering if buffer_size is specified
-        if buffer_size is not None and isinstance(activations_dataloader, ActivationsDataloader[ModelHookpointActivationsBatch]):
+        if buffer_size is not None:
             self.activations_dataloader = BufferedModelHookpointActivationsDataloader(
                 activations_dataloader,
                 buffer_size=buffer_size
