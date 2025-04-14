@@ -14,7 +14,7 @@ from crosscode.utils import get_device
 
 #CUDA_VISIBLE_DEVICES=1 python crosscode/trainers/topk_crosscoder/run.py crosscode/trainers/topk_crosscoder/g_acausal_k80.yaml
 #CUDA_VISIBLE_DEVICES=2 python crosscode/trainers/topk_crosscoder/run.py crosscode/trainers/topk_crosscoder/g_acausal_k120.yaml
-
+#CUDA_VISIBLE_DEVICES=3 python crosscode/trainers/topk_crosscoder/run.py crosscode/trainers/topk_crosscoder/g_acausal_k120.yaml
 def build_trainer(cfg: TopKAcausalCrosscoderExperimentConfig) -> TopKStyleAcausalCrosscoderTrainer:
     device = get_device()
 

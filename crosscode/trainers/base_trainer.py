@@ -68,54 +68,93 @@ class BufferedModelHookpointActivationsDataloader(ActivationsDataloader[ModelHoo
         """Get an iterator that yields shuffled batches from the buffer."""
         base_iterator = self.base_dataloader.get_activations_iterator()
         
-        while True:
-            # Collect buffer_size batches
-            buffer_batches_cpu = []
-            original_batch_size = -1
-            for i in range(self.buffer_size):
-                try:
-                    batch = next(base_iterator)
-                    if i == 0:
-                        original_batch_size = batch.activations_BMPD.shape[0]
-                    buffer_batches_cpu.append(batch.activations_BMPD.to("cpu", non_blocking=True))
-                except StopIteration:
-                    if not buffer_batches_cpu:
-                        return
+        # Initial variables
+        refill_threshold = self.buffer_size // 4  # Refill after using 1/4 of buffer
+        combined_tensor = None
+        original_batch_size = -1
+        current_position = 0
+        total_samples = 0
+        exhausted = False
+        
+        # Initial buffer fill
+        buffer_batches = []
+        for i in range(self.buffer_size):
+            try:
+                batch = next(base_iterator)
+                if i == 0:
+                    original_batch_size = batch.activations_BMPD.shape[0]
+                buffer_batches.append(batch.activations_BMPD.to("cpu", non_blocking=True))
+            except StopIteration:
+                exhausted = True
+                if not buffer_batches:
+                    return
+                break
+        
+        if not buffer_batches:
+            return
+            
+        if original_batch_size == -1 and buffer_batches:
+            original_batch_size = buffer_batches[0].shape[0]
+        
+        # Initial combination and shuffle
+        try:
+            combined_tensor = torch.cat(buffer_batches, dim=0)
+            del buffer_batches
+            
+            total_samples = combined_tensor.shape[0]
+            indices = torch.randperm(total_samples, device="cpu")
+            
+            while current_position + original_batch_size <= total_samples:
+                # Check if we need to refill
+                batches_used = current_position // original_batch_size
+                if batches_used >= refill_threshold and not exhausted:
+                    # Save the unused portion
+                    remaining_indices = indices[current_position:]
+                    remaining_tensor = combined_tensor[remaining_indices]
+                    
+                    # Get new batches
+                    new_batches = []
+                    for _ in range(batches_used):
+                        try:
+                            batch = next(base_iterator)
+                            new_batches.append(batch.activations_BMPD.to("cpu", non_blocking=True))
+                        except StopIteration:
+                            exhausted = True
+                            break
+                    
+                    # If we got new batches, combine and reshuffle
+                    if new_batches:
+                        new_tensor = torch.cat(new_batches, dim=0)
+                        combined_tensor = torch.cat([remaining_tensor, new_tensor], dim=0)
+                        del remaining_tensor, new_tensor, new_batches
+                        
+                        total_samples = combined_tensor.shape[0]
+                        indices = torch.randperm(total_samples, device="cpu")
+                        current_position = 0
+                
+                # Yield the next batch
+                batch_indices = indices[current_position:current_position + original_batch_size]
+                if len(batch_indices) == original_batch_size:  # Only yield complete batches
+                    shuffled_batch = combined_tensor[batch_indices]
+                    yield ModelHookpointActivationsBatch(shuffled_batch.to(self.device, non_blocking=True))
+                    current_position += original_batch_size
+                else:
+                    # We've reached the end of the buffer without a complete batch
                     break
             
-            if not buffer_batches_cpu:
-                return
+            # If we've exhausted the base iterator and have leftover samples less than a batch,
+            # we can't yield any more complete batches
             
-            if original_batch_size == -1 and buffer_batches_cpu:
-                original_batch_size = buffer_batches_cpu[0].shape[0]
-            elif not buffer_batches_cpu:
-                return
-
-            try:
-                combined_tensor = torch.cat(buffer_batches_cpu, dim=0)
-                
-                del buffer_batches_cpu
-
-                total_samples = combined_tensor.shape[0]
-                
-                indices = torch.randperm(total_samples, device="cpu")
-                
-                for i in range(0, total_samples, original_batch_size):
-                    batch_indices = indices[i:i + original_batch_size]
-                    if len(batch_indices) < original_batch_size:
-                        continue
-                    shuffled_batch_cpu = combined_tensor[batch_indices]
-                    yield ModelHookpointActivationsBatch(shuffled_batch_cpu.to(self.device, non_blocking=True))
-                
-                del combined_tensor
-                del indices
-
-            except RuntimeError as e:
-                logger.error(f"RuntimeError during CPU buffering: {e}")
-                if 'buffer_batches_cpu' in locals(): del buffer_batches_cpu
-                if 'combined_tensor' in locals(): del combined_tensor
-                if 'indices' in locals(): del indices
-                raise
+        except RuntimeError as e:
+            logger.error(f"RuntimeError during CPU buffering: {e}")
+            # Clean up variables to help with memory management
+            if 'buffer_batches' in locals(): del buffer_batches
+            if 'combined_tensor' in locals(): del combined_tensor
+            if 'indices' in locals(): del indices
+            if 'remaining_tensor' in locals(): del remaining_tensor
+            if 'new_tensor' in locals(): del new_tensor
+            if 'new_batches' in locals(): del new_batches
+            raise
 
     def get_scaling_factors(self) -> torch.Tensor:
         """Get the scaling factors from the base dataloader."""
