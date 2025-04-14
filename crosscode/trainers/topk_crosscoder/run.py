@@ -11,7 +11,7 @@ from crosscode.trainers.topk_crosscoder.trainer import TopKStyleAcausalCrosscode
 from crosscode.trainers.utils import build_wandb_run
 from crosscode.utils import get_device
 
-
+#CUDA_VISIBLE_DEVICES=1 python crosscode/trainers/topk_crosscoder/run.py crosscode/trainers/topk_crosscoder/gemma_configs.yaml
 def build_trainer(cfg: TopKAcausalCrosscoderExperimentConfig) -> TopKStyleAcausalCrosscoderTrainer:
     device = get_device()
 

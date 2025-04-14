@@ -34,7 +34,7 @@ class BufferedModelHookpointActivationsDataloader(ActivationsDataloader[ModelHoo
     def __init__(
         self,
         base_dataloader: ActivationsDataloader[ModelHookpointActivationsBatch],
-        buffer_size: int = 20,
+        buffer_size: int = 200,
     ):
         """Initialize the buffered dataloader.
         
@@ -124,7 +124,7 @@ class BaseTrainer(Generic[TConfig, TModel, TBatch], ABC):
         wandb_run: Run,
         device: torch.device,
         save_dir: Path | str,
-        buffer_size: int | None = 20,
+        buffer_size: int | None = 200,
     ):
         self.cfg = cfg
         # Wrap the dataloader with buffering if buffer_size is specified
