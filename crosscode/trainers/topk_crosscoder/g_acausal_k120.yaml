@@ -30,8 +30,8 @@ train:
     type: "adam"
     betas: [0.9, 0.999]
     learning_rate: 2e-4
-    warmup_pct: 0.05
-    warmdown_pct: 0.05
+    warmup_pct: 0.005
+    warmdown_pct: 0.005
 experiment_name: "k120"
 seed: 10101
 hookpoints: ["blocks.12.hook_resid_post","blocks.13.hook_resid_post","blocks.14.hook_resid_post" ,"blocks.15.hook_resid_post","blocks.16.hook_resid_post", "blocks.17.hook_resid_post", "blocks.18.hook_resid_post", "blocks.19.hook_resid_post","blocks.20.hook_resid_post","blocks.21.hook_resid_post"]
