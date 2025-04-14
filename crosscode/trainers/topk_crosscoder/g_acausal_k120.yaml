@@ -1,0 +1,40 @@
+data:
+  token_sequence_loader:
+    hf_dataset_name: "HuggingFaceFW/fineweb"
+    sequence_length: 256
+  activations_harvester:
+    llms:
+      # - name: EleutherAI/pythia-160M
+      #   revision: step142000
+      - name: google/gemma-2-2b
+    harvesting_batch_size: 8
+crosscoder:
+  n_latents: 16384
+  k: 120
+  use_encoder_bias: True
+  use_decoder_bias: True
+  dec_init_norm: 0.01
+cuda_device: 0 #doesnt work lmao
+train:
+  num_steps: 300000
+  batch_size: 1024
+  gradient_accumulation_steps_per_batch: 4
+  save_every_n_steps: 10000
+  log_every_n_steps: 10
+  topk_style: "batch_topk"
+  lambda_aux: 0.0625
+  k_aux: 512
+  dead_latents_threshold_n_examples: 500_000
+  upload_saves_to_wandb: false
+  optimizer:
+    type: "adam"
+    betas: [0.9, 0.999]
+    learning_rate: 2e-4
+    warmup_pct: 0.05
+    warmdown_pct: 0.05
+experiment_name: "k120"
+seed: 10101
+hookpoints: ["blocks.12.hook_resid_post","blocks.13.hook_resid_post","blocks.14.hook_resid_post" ,"blocks.15.hook_resid_post","blocks.16.hook_resid_post", "blocks.17.hook_resid_post", "blocks.18.hook_resid_post", "blocks.19.hook_resid_post","blocks.20.hook_resid_post","blocks.21.hook_resid_post"]
+wandb:
+  entity: jnainani-university-of-massachusetts-amherst
+  project: acausal_cc_test2

@@ -11,7 +11,10 @@ from crosscode.trainers.topk_crosscoder.trainer import TopKStyleAcausalCrosscode
 from crosscode.trainers.utils import build_wandb_run
 from crosscode.utils import get_device
 
-#CUDA_VISIBLE_DEVICES=1 python crosscode/trainers/topk_crosscoder/run.py crosscode/trainers/topk_crosscoder/gemma_configs.yaml
+
+#CUDA_VISIBLE_DEVICES=1 python crosscode/trainers/topk_crosscoder/run.py crosscode/trainers/topk_crosscoder/g_acausal_k80.yaml
+#CUDA_VISIBLE_DEVICES=2 python crosscode/trainers/topk_crosscoder/run.py crosscode/trainers/topk_crosscoder/g_acausal_k120.yaml
+
 def build_trainer(cfg: TopKAcausalCrosscoderExperimentConfig) -> TopKStyleAcausalCrosscoderTrainer:
     device = get_device()
 
@@ -70,5 +73,27 @@ def build_trainer(cfg: TopKAcausalCrosscoderExperimentConfig) -> TopKStyleAcausa
 
 
 if __name__ == "__main__":
+    import os
+    import torch
+    # Check if CUDA_VISIBLE_DEVICES is set in environment
+    cuda_devices_env = os.environ.get('CUDA_VISIBLE_DEVICES', 'Not Set')
+    print(f"CUDA_VISIBLE_DEVICES environment variable: {cuda_devices_env}")
+
+    # Check how many GPUs PyTorch can see
+    num_visible_gpus = torch.cuda.device_count()
+    print(f"Number of visible GPUs to PyTorch: {num_visible_gpus}")
+
+    # Print details about each visible GPU
+    for i in range(num_visible_gpus):
+        gpu_name = torch.cuda.get_device_name(i)
+        gpu_props = torch.cuda.get_device_properties(i)
+        print(f"GPU {i}: {gpu_name}")
+        print(f"  Total Memory: {gpu_props.total_memory / 1024**3:.2f} GB")
+        print(f"  Compute Capability: {gpu_props.major}.{gpu_props.minor}")
+
+    # Print which GPU would be used by default
+    current_device = torch.cuda.current_device()
+    print(f"Current default GPU: {current_device}")
     logger.info("Starting...")
+
     fire.Fire(run_exp(build_trainer, TopKAcausalCrosscoderExperimentConfig))

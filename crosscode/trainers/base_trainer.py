@@ -35,16 +35,19 @@ class BufferedModelHookpointActivationsDataloader(ActivationsDataloader[ModelHoo
         self,
         base_dataloader: ActivationsDataloader[ModelHookpointActivationsBatch],
         buffer_size: int = 200,
+        device: torch.device | None = None,
     ):
         """Initialize the buffered dataloader.
         
         Args:
             base_dataloader: The base dataloader to buffer batches from
             buffer_size: Number of batches to collect before shuffling
+            device: The target device to move the final batch to (defaults to CPU if None)
         """
         self.base_dataloader = base_dataloader
         self.buffer_size = buffer_size
         self._base_iterator = None
+        self.device = device if device is not None else torch.device("cpu")
 
     @property
     def n_models(self) -> int:
@@ -67,45 +70,51 @@ class BufferedModelHookpointActivationsDataloader(ActivationsDataloader[ModelHoo
         
         while True:
             # Collect buffer_size batches
-            buffer_batches = []
-            for _ in range(self.buffer_size):
+            buffer_batches_cpu = []
+            original_batch_size = -1
+            for i in range(self.buffer_size):
                 try:
                     batch = next(base_iterator)
-                    buffer_batches.append(batch.activations_BMPD)
+                    if i == 0:
+                        original_batch_size = batch.activations_BMPD.shape[0]
+                    buffer_batches_cpu.append(batch.activations_BMPD.to("cpu", non_blocking=True))
                 except StopIteration:
-                    if not buffer_batches:  # If buffer is empty, we're done
+                    if not buffer_batches_cpu:
                         return
                     break
             
-            if not buffer_batches:  # If we couldn't collect any batches, we're done
+            if not buffer_batches_cpu:
                 return
-                
+            
+            if original_batch_size == -1 and buffer_batches_cpu:
+                original_batch_size = buffer_batches_cpu[0].shape[0]
+            elif not buffer_batches_cpu:
+                return
+
             try:
-                # Stack all batches along the batch dimension
-                combined_tensor = torch.cat(buffer_batches, dim=0)  # Shape: (buffer_size*B, M, P, D)
+                combined_tensor = torch.cat(buffer_batches_cpu, dim=0)
                 
-                # Get the total number of samples in the buffer
+                del buffer_batches_cpu
+
                 total_samples = combined_tensor.shape[0]
                 
-                # Create a random permutation of indices
-                indices = torch.randperm(total_samples)
+                indices = torch.randperm(total_samples, device="cpu")
                 
-                # Original batch size from the base dataloader
-                original_batch_size = buffer_batches[0].shape[0]
-                
-                # Yield shuffled batches of the original batch size
                 for i in range(0, total_samples, original_batch_size):
                     batch_indices = indices[i:i + original_batch_size]
                     if len(batch_indices) < original_batch_size:
-                        # Skip the last batch if it's smaller than the original batch size
                         continue
-                    shuffled_batch = combined_tensor[batch_indices]
-                    yield ModelHookpointActivationsBatch(shuffled_batch)
+                    shuffled_batch_cpu = combined_tensor[batch_indices]
+                    yield ModelHookpointActivationsBatch(shuffled_batch_cpu.to(self.device, non_blocking=True))
+                
+                del combined_tensor
+                del indices
+
             except RuntimeError as e:
-                if "out of memory" in str(e):
-                    logger.warning("CUDA out of memory while buffering batches. Reducing buffer size...")
-                    self.buffer_size = max(1, self.buffer_size // 2)
-                    continue
+                logger.error(f"RuntimeError during CPU buffering: {e}")
+                if 'buffer_batches_cpu' in locals(): del buffer_batches_cpu
+                if 'combined_tensor' in locals(): del combined_tensor
+                if 'indices' in locals(): del indices
                 raise
 
     def get_scaling_factors(self) -> torch.Tensor:
@@ -124,21 +133,23 @@ class BaseTrainer(Generic[TConfig, TModel, TBatch], ABC):
         wandb_run: Run,
         device: torch.device,
         save_dir: Path | str,
-        buffer_size: int | None = 200,
+        buffer_size: int | None = 400,
     ):
         self.cfg = cfg
+        self.device = device
+
         # Wrap the dataloader with buffering if buffer_size is specified
         if buffer_size is not None:
             self.activations_dataloader = BufferedModelHookpointActivationsDataloader(
                 activations_dataloader,
-                buffer_size=buffer_size
+                buffer_size=buffer_size,
+                device=self.device
             )
         else:
             self.activations_dataloader = activations_dataloader
 
         self.model = model
         self.wandb_run = wandb_run
-        self.device = device
 
         self.optimizer = build_optimizer(cfg.optimizer, model.parameters())
 
