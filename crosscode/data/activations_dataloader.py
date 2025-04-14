@@ -82,6 +82,7 @@ class ModelHookpointActivationsDataloader(ActivationsDataloader[ModelHookpointAc
         batch_iter_BMPD = change_batch_size_BX(iterator_HX=iterator_HsMPD, new_batch_size_B=self._yield_batch_size_B)
 
         if scaling_factors_MP is None:
+            print('WARNING: scaling factors are None, this is OK only if you see them being estimated next.')
             scaling_factors_MP1 = torch.ones((1, 1, 1), device=self._device)
         else:
             scaling_factors_MP1 = rearrange(scaling_factors_MP.to(self._device), "m p -> m p 1")

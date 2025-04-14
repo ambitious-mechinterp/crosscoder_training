@@ -36,6 +36,7 @@ def build_llm(
             revision=llm.revision,
             cache_dir=cache_dir,
             dtype=dtype,
+            device=device,
         )
         tokenizer = AutoTokenizer.from_pretrained(
             llm.name,
@@ -57,6 +58,7 @@ def build_llm(
             hf_model=AutoModelForCausalLM.from_pretrained(llm.hf_model_name, cache_dir=cache_dir),
             cache_dir=cache_dir,
             dtype=dtype,
+            device=device,
         )
 
     # Replace any slashes with underscores to avoid potential path issues
@@ -68,7 +70,7 @@ def build_llm(
 
     logger.info(f"Assigned model key: {model_key} to model {llm_out.cfg.model_name}")
 
-    return cast(HookedTransformer, llm_out.to(device)), tokenizer
+    return cast(HookedTransformer, llm_out), tokenizer
 
 
 DTYPE_FROM_STRING = {

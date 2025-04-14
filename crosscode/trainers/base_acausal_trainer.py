@@ -62,7 +62,7 @@ class BaseModelHookpointAcausalTrainer(
 
             # Clear CUDA cache before saving
             torch.cuda.empty_cache()
-
+            # TODO: verify that the folding works correctly here
             scaling_factors_MP = self.activations_dataloader.get_scaling_factors().to(self.device)
             self.model.with_folded_scaling_factors(scaling_factors_MP).save(checkpoint_path)
 

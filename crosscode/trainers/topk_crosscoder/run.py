@@ -60,7 +60,7 @@ def build_trainer(cfg: TopKAcausalCrosscoderExperimentConfig) -> TopKStyleAcausa
 
     if cfg.train.k_aux is None:
         cfg.train.k_aux = d_model // 2
-        logger.info(f"defaulting to k_aux={cfg.train.k_aux} for crosscoder (({d_model=}) // 2)")
+        logger.info(f"defaulting to k_aux={cfg.train.k_aux} for crosscoder (({d_model}) // 2)")
 
     return TopKStyleAcausalCrosscoderTrainer(
         cfg=cfg.train,
