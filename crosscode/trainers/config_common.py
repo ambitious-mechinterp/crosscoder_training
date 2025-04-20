@@ -73,6 +73,10 @@ class BaseTrainConfig(BaseModel):
     log_every_n_steps: int
     gradient_accumulation_steps_per_batch: int = 1
 
+    # New buffer parameters
+    buffer_size: int | None = 400
+    buffer_refill_ratio: float = 0.25  # Additional parameter for future flexibility
+
     def minibatch_size(self) -> int:
         return self.batch_size // self.gradient_accumulation_steps_per_batch
 

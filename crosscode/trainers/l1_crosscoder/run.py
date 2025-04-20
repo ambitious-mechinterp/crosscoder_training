@@ -1,4 +1,6 @@
 import fire  # type: ignore
+import torch
+import os
 
 from crosscode.data.activations_dataloader import build_model_hookpoint_dataloader
 from crosscode.llms import build_llms
@@ -13,8 +15,20 @@ from crosscode.utils import get_device
 
 
 def build_l1_crosscoder_trainer(cfg: L1ExperimentConfig) -> L1CrosscoderTrainer:
-    device = get_device()
-
+    # This works with both CUDA_VISIBLE_DEVICES and explicit device selection
+    device = get_device(cuda_device=cfg.cuda_device if hasattr(cfg, 'cuda_device') else None)
+    
+    # Print diagnostic info
+    if torch.cuda.is_available():
+        cuda_devices_env = os.environ.get('CUDA_VISIBLE_DEVICES', 'Not Set')
+        num_visible_gpus = torch.cuda.device_count()
+        current_device = device.index if device.type == 'cuda' else 'cpu'
+        
+        logger.info(f"CUDA_VISIBLE_DEVICES: {cuda_devices_env}")
+        logger.info(f"Number of visible GPUs: {num_visible_gpus}")
+        logger.info(f"Selected device: {device} (index: {current_device})")
+        
+    # Rest of your function...
     llms = build_llms(
         cfg.data.activations_harvester.llms,
         cfg.cache_dir,
@@ -52,6 +66,8 @@ def build_l1_crosscoder_trainer(cfg: L1ExperimentConfig) -> L1CrosscoderTrainer:
         wandb_run=wandb_run,
         device=device,
         save_dir=cfg.save_dir,
+        buffer_size=cfg.train.buffer_size,
+        buffer_refill_ratio=cfg.train.buffer_refill_ratio,
     )
 
 

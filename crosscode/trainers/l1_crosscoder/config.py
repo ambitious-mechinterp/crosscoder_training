@@ -8,7 +8,8 @@ class L1CrosscoderConfig(BaseSparseCoder):
 class L1TrainConfig(BaseTrainConfig):
     final_lambda_s: float = 5.0
     lambda_s_n_steps: int = 1000
-
+    # This parameter for dead latent tracking only - no effect on training
+    dead_latents_threshold_n_examples: int = 500_000  # Match g_acausal_k80.yaml value
 
 class L1ExperimentConfig(BaseExperimentConfig):
     crosscoder: L1CrosscoderConfig

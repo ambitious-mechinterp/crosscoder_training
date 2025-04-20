@@ -1,5 +1,9 @@
 from dataclasses import dataclass
-from typing import Any, Generic, Self, cast
+from typing import Any, Generic, cast
+try:
+    from typing import Self
+except ImportError:
+    from typing_extensions import Self
 
 import torch
 from einops import einsum

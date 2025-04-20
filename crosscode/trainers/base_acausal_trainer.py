@@ -35,8 +35,10 @@ class BaseModelHookpointAcausalTrainer(
         wandb_run: Run,
         device: torch.device,
         save_dir: Path | str,
+        buffer_size: int | None = 400,
+        buffer_refill_ratio: float | None = 0.25,
     ):
-        super().__init__(cfg, activations_dataloader, model, wandb_run, device, save_dir)
+        super().__init__(cfg, activations_dataloader, model, wandb_run, device, save_dir, buffer_size, buffer_refill_ratio)
 
         assert self.activations_dataloader.n_models == self.model.n_models, (
             "expected the number of models to be the same between the activations dataloader and the crosscoder"

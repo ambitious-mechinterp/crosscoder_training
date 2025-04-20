@@ -1,9 +1,11 @@
+from math import prod
 import os
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterator
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Generic, TypeVar
+import contextlib
 
 import torch
 import yaml
@@ -24,142 +26,183 @@ TModel = TypeVar("TModel", bound=BaseCrosscoder[Any])
 TBatch = TypeVar("TBatch")
 
 
-class BufferedModelHookpointActivationsDataloader(ActivationsDataloader[ModelHookpointActivationsBatch]):
-    """A dataloader that buffers multiple batches and shuffles them before yielding.
-    
-    This provides better shuffling by mixing data across multiple batches while maintaining
-    the original batch size and tensor structure.
+class BufferedModelHookpointActivationsDataloader(
+    ActivationsDataloader[ModelHookpointActivationsBatch]
+):
+    """Fixed‑memory wrapper around another activations dataloader.
+
+    Parameters
+    ----------
+    base_dataloader : ActivationsDataloader
+        The source dataloader producing activations.
+    buffer_size : int, default 200
+        Number of *mini‑batches* held in the circular buffer.
+    device : torch.device, optional
+        Device to which emitted batches are copied.  The buffer itself always
+        resides on the CPU to keep GPU memory free.
+    refill_ratio : float in (0, 1), default 0.25
+        Fraction of the buffer that must be consumed before the unread tail is
+        compacted and the free space refilled.
     """
-    
+
     def __init__(
         self,
         base_dataloader: ActivationsDataloader[ModelHookpointActivationsBatch],
         buffer_size: int = 200,
         device: torch.device | None = None,
-    ):
-        """Initialize the buffered dataloader.
-        
-        Args:
-            base_dataloader: The base dataloader to buffer batches from
-            buffer_size: Number of batches to collect before shuffling
-            device: The target device to move the final batch to (defaults to CPU if None)
-        """
-        self.base_dataloader = base_dataloader
-        self.buffer_size = buffer_size
-        self._base_iterator = None
-        self.device = device if device is not None else torch.device("cpu")
+        refill_ratio: float = 0.25,
+    ) -> None:
+        super().__init__()
+        if not (0.0 < refill_ratio < 1.0):
+            raise ValueError("refill_ratio must be in (0, 1)")
+
+        self._base = base_dataloader
+        self._buffer_batches = buffer_size
+        self._device = device or torch.device("cpu")
+        self._refill_ratio = refill_ratio
+
+        self._memory_logged = False  # print memory footprint once only
+
+    # ------------------------------------------------------------------
+    # Passthrough metadata ---------------------------------------------
+    # ------------------------------------------------------------------
+    @property
+    def n_models(self) -> int:  # noqa: D401
+        return self._base.n_models
 
     @property
-    def n_models(self) -> int:
-        """Number of models in the dataloader."""
-        return self.base_dataloader.n_models
+    def hookpoints(self) -> list[str]:  # noqa: D401
+        return self._base.hookpoints
 
     @property
-    def hookpoints(self) -> list[str]:
-        """List of hookpoints in the dataloader."""
-        return self.base_dataloader.hookpoints
+    def n_hookpoints(self) -> int:  # noqa: D401
+        return self._base.n_hookpoints
 
-    @property
-    def n_hookpoints(self) -> int:
-        """Number of hookpoints in the dataloader."""
-        return self.base_dataloader.n_hookpoints
-        
+    # ------------------------------------------------------------------
+    # Iterator ---------------------------------------------------------
+    # ------------------------------------------------------------------
     def get_activations_iterator(self) -> Iterator[ModelHookpointActivationsBatch]:
-        """Get an iterator that yields shuffled batches from the buffer."""
-        base_iterator = self.base_dataloader.get_activations_iterator()
-        
-        # Initial variables
-        refill_threshold = self.buffer_size // 4  # Refill after using 1/4 of buffer
-        combined_tensor = None
-        original_batch_size = -1
-        current_position = 0
-        total_samples = 0
-        exhausted = False
-        
-        # Initial buffer fill
-        buffer_batches = []
-        for i in range(self.buffer_size):
-            try:
-                batch = next(base_iterator)
-                if i == 0:
-                    original_batch_size = batch.activations_BMPD.shape[0]
-                buffer_batches.append(batch.activations_BMPD.to("cpu", non_blocking=True))
-            except StopIteration:
-                exhausted = True
-                if not buffer_batches:
-                    return
-                break
-        
-        if not buffer_batches:
-            return
-            
-        if original_batch_size == -1 and buffer_batches:
-            original_batch_size = buffer_batches[0].shape[0]
-        
-        # Initial combination and shuffle
+        base_iter = self._base.get_activations_iterator()
+
         try:
-            combined_tensor = torch.cat(buffer_batches, dim=0)
-            del buffer_batches
-            
-            total_samples = combined_tensor.shape[0]
-            indices = torch.randperm(total_samples, device="cpu")
-            
-            while current_position + original_batch_size <= total_samples:
-                # Check if we need to refill
-                batches_used = current_position // original_batch_size
-                if batches_used >= refill_threshold and not exhausted:
-                    # Save the unused portion
-                    remaining_indices = indices[current_position:]
-                    remaining_tensor = combined_tensor[remaining_indices]
-                    
-                    # Get new batches
-                    new_batches = []
-                    for _ in range(batches_used):
-                        try:
-                            batch = next(base_iterator)
-                            new_batches.append(batch.activations_BMPD.to("cpu", non_blocking=True))
-                        except StopIteration:
-                            exhausted = True
-                            break
-                    
-                    # If we got new batches, combine and reshuffle
-                    if new_batches:
-                        new_tensor = torch.cat(new_batches, dim=0)
-                        combined_tensor = torch.cat([remaining_tensor, new_tensor], dim=0)
-                        del remaining_tensor, new_tensor, new_batches
-                        
-                        total_samples = combined_tensor.shape[0]
-                        indices = torch.randperm(total_samples, device="cpu")
-                        current_position = 0
-                
-                # Yield the next batch
-                batch_indices = indices[current_position:current_position + original_batch_size]
-                if len(batch_indices) == original_batch_size:  # Only yield complete batches
-                    shuffled_batch = combined_tensor[batch_indices]
-                    yield ModelHookpointActivationsBatch(shuffled_batch.to(self.device, non_blocking=True))
-                    current_position += original_batch_size
-                else:
-                    # We've reached the end of the buffer without a complete batch
+            first_batch = next(base_iter)
+        except StopIteration:
+            # The wrapped dataloader is empty: yield nothing.
+            return
+
+        # Shapes: B = batch, M = model, P = hook_Point, D = dim
+        B, M, P, D = first_batch.activations_BMPD.shape  # type: ignore[assignment]
+        capacity_B = self._buffer_batches * B  # total samples held at once
+
+        # ------------------------------------------------------------------
+        # Allocate buffer tensors (CPU‑resident) ---------------------------
+        # ------------------------------------------------------------------
+        buffer_BMPD = torch.empty(
+            capacity_B, M, P, D,
+            dtype=first_batch.activations_BMPD.dtype,
+            device="cpu",
+        )
+        consumed_mask = torch.zeros(capacity_B, dtype=torch.bool, device="cpu")
+
+        # ------------------------------------------------------------------
+        # Helper: refill buffer in place -----------------------------------
+        # ------------------------------------------------------------------
+        def _fill(start_ptr: int) -> int:
+            """Fill buffer from ``start_ptr`` onward.  Returns new *end* pointer."""
+            ptr = start_ptr
+            while ptr + B <= capacity_B:
+                try:
+                    batch = next(base_iter)
+                except StopIteration:
                     break
-            
-            # If we've exhausted the base iterator and have leftover samples less than a batch,
-            # we can't yield any more complete batches
-            
-        except RuntimeError as e:
-            logger.error(f"RuntimeError during CPU buffering: {e}")
-            # Clean up variables to help with memory management
-            if 'buffer_batches' in locals(): del buffer_batches
-            if 'combined_tensor' in locals(): del combined_tensor
-            if 'indices' in locals(): del indices
-            if 'remaining_tensor' in locals(): del remaining_tensor
-            if 'new_tensor' in locals(): del new_tensor
-            if 'new_batches' in locals(): del new_batches
-            raise
+                buffer_BMPD[ptr : ptr + B] = batch.activations_BMPD.to(
+                    "cpu", non_blocking=True
+                )
+                consumed_mask[ptr : ptr + B] = False
+                ptr += B
+            return ptr
 
-    def get_scaling_factors(self) -> torch.Tensor:
-        """Get the scaling factors from the base dataloader."""
-        return self.base_dataloader.get_scaling_factors()
+        # ------------------------------------------------------------------
+        # Log memory footprint once ---------------------------------------
+        # ------------------------------------------------------------------
+        if not self._memory_logged:
+            total_bytes = first_batch.activations_BMPD.element_size() * capacity_B * prod((M, P, D))
+            logger.info(
+                "Buffered activations reserve ≈%.2f MB of CPU RAM (%d samples × %s)",
+                total_bytes / 1_048_576,
+                capacity_B,
+                first_batch.activations_BMPD.dtype,
+            )
+            self._memory_logged = True
 
+        # ------------------------------------------------------------------
+        # Prime buffer with initial data ----------------------------------
+        # ------------------------------------------------------------------
+        buffer_BMPD[0:B] = first_batch.activations_BMPD.to("cpu", non_blocking=True)
+        valid_end = _fill(B)
+
+        rng = torch.Generator(device="cpu")
+
+        # ------------------------------------------------------------------
+        # Main iteration wrapped in try/finally for cleanup ----------------
+        # ------------------------------------------------------------------
+        try:
+            while True:
+                unread_idx = (~consumed_mask[:valid_end]).nonzero(as_tuple=False).squeeze(1)
+                if unread_idx.numel() < B:
+                    # Buffer nearly empty – attempt full refresh.
+                    valid_end = _fill(0)
+                    unread_idx = (~consumed_mask[:valid_end]).nonzero(as_tuple=False).squeeze(1)
+                    if unread_idx.numel() < B:
+                        # Source exhausted – we're done.
+                        return
+
+                # Shuffle unread indices.
+                unread_idx_perm = unread_idx[torch.randperm(unread_idx.numel(), generator=rng)]
+
+                # Emit as many full batches as available in this permutation.
+                batches_this_cycle = unread_idx_perm.numel() // B
+                for i in range(batches_this_cycle):
+                    sel = unread_idx_perm[i * B : (i + 1) * B]
+                    consumed_mask[sel] = True
+                    try:
+                        yield ModelHookpointActivationsBatch(
+                            buffer_BMPD[sel].to(self._device, non_blocking=True)
+                        )
+                    except RuntimeError as exc:
+                        # Most likely an OOM on device transfer.
+                        logger.exception("Device transfer failed – freeing CUDA cache and re‑raising.")
+                        if self._device.type == "cuda":
+                            torch.cuda.empty_cache()
+                        raise exc
+
+                    # Trigger in‑place refill if threshold reached.
+                    consumed_batches = consumed_mask[:valid_end].sum().item() // B
+                    if consumed_batches >= int(self._buffer_batches * self._refill_ratio):
+                        unread_idx_before_refill = (~consumed_mask[:valid_end]).nonzero(as_tuple=False).squeeze(1)
+                        n_unread = unread_idx_before_refill.numel()
+
+                        if n_unread:
+                            buffer_BMPD[0:n_unread] = buffer_BMPD[unread_idx_before_refill]
+                            consumed_mask[0:n_unread] = False
+
+                        valid_end = _fill(n_unread)
+                        consumed_mask[n_unread:valid_end] = False
+                        break  # rebuild permutation after refill
+        finally:
+            # ------------------------------------------------------------------
+            # Defensive cleanup on *any* exit path ------------------------------
+            # ------------------------------------------------------------------
+            buffer_BMPD = None  # type: ignore[assignment]
+            consumed_mask = None  # type: ignore[assignment]
+            if self._device.type == "cuda":
+                torch.cuda.empty_cache()
+
+    # ------------------------------------------------------------------
+    # Scaling factors passthrough --------------------------------------
+    # ------------------------------------------------------------------
+    def get_scaling_factors(self) -> torch.Tensor:  # noqa: D401
+        return self._base.get_scaling_factors()
 
 class BaseTrainer(Generic[TConfig, TModel, TBatch], ABC):
     LOG_HISTOGRAMS_EVERY_N_LOGS = 10
@@ -173,16 +216,22 @@ class BaseTrainer(Generic[TConfig, TModel, TBatch], ABC):
         device: torch.device,
         save_dir: Path | str,
         buffer_size: int | None = 400,
+        buffer_refill_ratio: float | None = 0.25,
     ):
         self.cfg = cfg
         self.device = device
 
         # Wrap the dataloader with buffering if buffer_size is specified
-        if buffer_size is not None:
+        if buffer_size is not None and not isinstance(activations_dataloader, BufferedModelHookpointActivationsDataloader):
+            if buffer_refill_ratio is None:
+                buffer_refill_ratio = 0.25 # Default refill ratio
+
+            print(f'Using buffered dataloader with buffer size {buffer_size} and refill ratio {buffer_refill_ratio}')
             self.activations_dataloader = BufferedModelHookpointActivationsDataloader(
                 activations_dataloader,
+                device=self.device,
                 buffer_size=buffer_size,
-                device=self.device
+                refill_ratio=buffer_refill_ratio,
             )
         else:
             self.activations_dataloader = activations_dataloader

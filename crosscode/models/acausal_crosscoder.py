@@ -1,5 +1,9 @@
 from dataclasses import dataclass
-from typing import Any, Generic, Self, cast
+from typing import Any, Generic, cast
+try:
+    from typing import Self
+except ImportError:
+    from typing_extensions import Self
 from crosscode.llms import DTYPE_FROM_STRING
 import torch
 from torch import nn
