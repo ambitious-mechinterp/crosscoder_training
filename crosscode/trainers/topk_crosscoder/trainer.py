@@ -13,7 +13,8 @@ from crosscode.models.activations.topk import (
 )
 from crosscode.trainers.base_acausal_trainer import BaseModelHookpointAcausalTrainer
 from crosscode.trainers.topk_crosscoder.config import TopKTrainConfig
-from crosscode.utils import calculate_reconstruction_loss_summed_norm_MSEs, not_none
+from crosscode.trainers.utils import get_l0_stats, wandb_histogram
+from crosscode.utils import calculate_reconstruction_loss_summed_norm_MSEs, not_none, l0_norm, l2_norm
 
 
 class TopKStyleAcausalCrosscoderTrainer(
@@ -39,15 +40,41 @@ class TopKStyleAcausalCrosscoderTrainer(
             recon_flat = train_res.recon_acts_BMPD.reshape(train_res.recon_acts_BMPD.shape[0], -1)
             cosine_sim = F.cosine_similarity(batch_flat, recon_flat, dim=1).mean()
 
+            # Calculate L0 norm per example
+            l0_per_example_B = l0_norm(train_res.latents_BL, dim=-1)
+            # Create L0 histogram for WandB
+            l0_histogram = wandb_histogram(l0_per_example_B)
+
             log_dict: dict[str, Any] = {
                 "train/loss": loss.item(),
                 "train/reconstruction_loss": reconstruction_loss.item(),
                 "train/aux_loss": aux_loss.item(),
+                "train/aux_loss_weighted": self.cfg.lambda_aux * aux_loss.item(),
                 "train/n_dead_latents": torch.sum(self.firing_tracker.tokens_since_fired_L > self.cfg.dead_latents_threshold_n_examples).item(),
                 "train/reconstruction_mse": mse.item(),
                 "train/reconstruction_cosine_sim": cosine_sim.item(),
+                "media/l0_distribution": l0_histogram,
                 **self._get_fvu_dict(batch_BMPD, train_res.recon_acts_BMPD),
+                **get_l0_stats(train_res.latents_BL),
             }
+
+            # <<< --- Calculate L2 norms of activation vectors AFTER scaling --- >>>
+            # batch_BMPD is already scaled by the dataloader
+            scaled_norms_BMP = l2_norm(batch_BMPD, dim=-1) # Result shape: (Batch, Model, Hookpoint)
+
+            # Log histogram per model and hookpoint
+            # Assuming self.n_models and self.hookpoints are available from BaseModelHookpointAcausalTrainer
+            for m_idx in range(self.n_models):
+                for p_idx, hp_name in enumerate(self.hookpoints):
+                    # Extract norms for this specific model and hookpoint across the batch
+                    norms_for_hist_B = scaled_norms_BMP[:, m_idx, p_idx]
+
+                    # Create histogram using your utility
+                    hist = wandb_histogram(norms_for_hist_B)
+
+                    # Add to log dict under a descriptive key
+                    log_key = f"media/scaled_norm_dist/model{m_idx}_hookpoint{hp_name}"
+                    log_dict[log_key] = hist
 
             return reconstruction_loss, log_dict
 

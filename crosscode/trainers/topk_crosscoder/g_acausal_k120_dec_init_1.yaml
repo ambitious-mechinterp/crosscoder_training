@@ -13,7 +13,7 @@ crosscoder:
   k: 120
   use_encoder_bias: True
   use_decoder_bias: True
-  dec_init_norm: 0.01
+  dec_init_norm: 1.0
 cuda_device: 0 # now it works :)
 train:
   num_steps: 300000
@@ -37,7 +37,7 @@ train:
     learning_rate: 2e-4
     warmup_pct: 0.005
     warmdown_pct: 0.005
-experiment_name: "k120_continuous_optimized_buffer"
+experiment_name: "k120_dec_init_1"
 seed: 10101
 hookpoints: ["blocks.12.hook_resid_post","blocks.13.hook_resid_post","blocks.14.hook_resid_post" ,"blocks.15.hook_resid_post","blocks.16.hook_resid_post", "blocks.17.hook_resid_post", "blocks.18.hook_resid_post", "blocks.19.hook_resid_post","blocks.20.hook_resid_post","blocks.21.hook_resid_post"]
 wandb:

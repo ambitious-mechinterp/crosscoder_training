@@ -75,7 +75,8 @@ class BaseTrainConfig(BaseModel):
 
     # New buffer parameters
     buffer_size: int | None = 400
-    buffer_refill_ratio: float = 0.25  # Additional parameter for future flexibility
+    buffer_refill_ratio: float = 0.25
+    clip_grad_norm: float | None = None
 
     def minibatch_size(self) -> int:
         return self.batch_size // self.gradient_accumulation_steps_per_batch

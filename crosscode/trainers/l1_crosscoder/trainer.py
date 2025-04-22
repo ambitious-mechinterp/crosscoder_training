@@ -41,6 +41,7 @@ class L1CrosscoderTrainer(BaseModelHookpointAcausalTrainer[L1TrainConfig, ReLUAc
                 "train/loss": loss.item(),
                 "train/reconstruction_loss": reconstruction_loss.item(),
                 "train/sparsity_loss": sparsity_loss.item(),
+                "train/sparsity_loss_weighted": self._l1_coef_scheduler() * sparsity_loss.item(),
                 "train/n_dead_latents": n_dead_latents,
                 "train/reconstruction_mse": mse.item(),
                 "train/reconstruction_cosine_sim": cosine_sim.item(),

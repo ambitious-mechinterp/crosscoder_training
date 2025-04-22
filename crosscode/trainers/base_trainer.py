@@ -5,7 +5,7 @@ from collections.abc import Callable, Iterator
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Generic, TypeVar
-import contextlib
+import wandb
 
 import torch
 import yaml
@@ -214,18 +214,17 @@ class BaseTrainer(Generic[TConfig, TModel, TBatch], ABC):
         model: TModel,
         wandb_run: Run,
         device: torch.device,
-        save_dir: Path | str,
-        buffer_size: int | None = 400,
-        buffer_refill_ratio: float | None = 0.25,
+        save_dir: Path | str
     ):
         self.cfg = cfg
         self.device = device
+        self.clip_grad_norm = cfg.clip_grad_norm
+
+        buffer_size = cfg.buffer_size
+        buffer_refill_ratio = cfg.buffer_refill_ratio
 
         # Wrap the dataloader with buffering if buffer_size is specified
         if buffer_size is not None and not isinstance(activations_dataloader, BufferedModelHookpointActivationsDataloader):
-            if buffer_refill_ratio is None:
-                buffer_refill_ratio = 0.25 # Default refill ratio
-
             print(f'Using buffered dataloader with buffer size {buffer_size} and refill ratio {buffer_refill_ratio}')
             self.activations_dataloader = BufferedModelHookpointActivationsDataloader(
                 activations_dataloader,
@@ -285,18 +284,57 @@ class BaseTrainer(Generic[TConfig, TModel, TBatch], ABC):
                     log_dicts.append(log_dict)
 
             self._after_forward_passes()
-
-            if log_dicts:
-                batch_log_dict_avgs = {
-                    **{k: sum(v) / len(v) for k, v in dict_join(log_dicts).items()},
-                    **self._step_logs(),
-                }
-                self.wandb_run.log(batch_log_dict_avgs, step=self.step)
-
             self._maybe_save_model()
 
-            #clip_grad_norm_(self.model.parameters(), 1.0)
+            if self.clip_grad_norm:
+                total_grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=self.clip_grad_norm)   
+                if self.step == 0:
+                    logger.info(f"Using grad clipping;\n\tGradient norm before clipping: {total_grad_norm.item()}")    
+
             self.optimizer.step()
+
+            if log_dicts:
+                # Join dictionaries first to group values by key
+                joined_logs = dict_join(log_dicts)
+
+                # Initialize dictionary for averaged/final logs
+                final_log_dict = {}
+
+                # Process each key from the joined logs
+                for key, value_list in joined_logs.items():
+                    # Check the type of the first element (assuming list is non-empty and types are consistent)
+                    # Check specifically for wandb.Histogram or wandb custom charts if you use others
+                    if isinstance(value_list[0], (wandb.Histogram, wandb.Image)):
+                         # For Histograms or other WandB objects, just take the last one from the accumulation steps
+                         final_log_dict[key] = value_list[-1]
+                    elif isinstance(value_list[0], (int, float, torch.Tensor)):
+                         # For numerical types (int, float, or tensors that can be summed), calculate the average
+                         # Convert tensors to float if necessary
+                         try:
+                             numeric_values = [v.item() if isinstance(v, torch.Tensor) else v for v in value_list]
+                             final_log_dict[key] = sum(numeric_values) / len(numeric_values)
+                         except Exception as e:
+                             logger.warning(f"Could not average key '{key}'. Error: {e}. Taking last value.")
+                             final_log_dict[key] = value_list[-1].item() if isinstance(value_list[-1], torch.Tensor) else value_list[-1]
+                    else:
+                        # Handle other potential types or log a warning/error
+                        logger.warning(f"Skipping averaging/logging for key '{key}' with unknown type {type(value_list[0])}. Taking last value.")
+                        # Attempt to log the last value directly, hoping wandb handles it
+                        final_log_dict[key] = value_list[-1]
+
+                # Add step-specific logs (like learning rate, epoch, grad norm)
+                step_specific_logs = self._step_logs()
+
+                # Log the norm (which was calculated before clipping)
+                if self.clip_grad_norm:
+                    step_specific_logs["train/gradient_norm_before_clip"] = total_grad_norm.item()     
+
+                # Combine averaged batch logs with step-specific logs
+                final_log_dict.update(step_specific_logs)
+
+                # Log the processed dictionary
+                self.wandb_run.log(final_log_dict, step=self.step)
+
             self.step += 1
 
         self.wandb_run.finish()

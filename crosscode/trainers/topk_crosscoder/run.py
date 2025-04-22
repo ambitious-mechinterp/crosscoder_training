@@ -16,7 +16,18 @@ from crosscode.utils import get_device
 #CUDA_VISIBLE_DEVICES=2 python crosscode/trainers/topk_crosscoder/run.py crosscode/trainers/topk_crosscoder/g_acausal_k120.yaml
 #CUDA_VISIBLE_DEVICES=3 python crosscode/trainers/topk_crosscoder/run.py crosscode/trainers/topk_crosscoder/g_acausal_k120.yaml
 def build_trainer(cfg: TopKAcausalCrosscoderExperimentConfig) -> TopKStyleAcausalCrosscoderTrainer:
-    device = get_device()
+    # This works with both CUDA_VISIBLE_DEVICES and explicit device selection
+    device = get_device(cuda_device=cfg.cuda_device if hasattr(cfg, 'cuda_device') else None)
+    
+    # Print diagnostic info
+    if torch.cuda.is_available():
+        cuda_devices_env = os.environ.get('CUDA_VISIBLE_DEVICES', 'Not Set')
+        num_visible_gpus = torch.cuda.device_count()
+        current_device = device.index if device.type == 'cuda' else 'cpu'
+        
+        logger.info(f"CUDA_VISIBLE_DEVICES: {cuda_devices_env}")
+        logger.info(f"Number of visible GPUs: {num_visible_gpus}")
+        logger.info(f"Selected device: {device} (index: {current_device})")
 
     llms = build_llms(
         cfg.data.activations_harvester.llms,

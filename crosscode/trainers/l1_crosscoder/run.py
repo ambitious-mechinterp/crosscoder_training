@@ -28,7 +28,6 @@ def build_l1_crosscoder_trainer(cfg: L1ExperimentConfig) -> L1CrosscoderTrainer:
         logger.info(f"Number of visible GPUs: {num_visible_gpus}")
         logger.info(f"Selected device: {device} (index: {current_device})")
         
-    # Rest of your function...
     llms = build_llms(
         cfg.data.activations_harvester.llms,
         cfg.cache_dir,
@@ -65,9 +64,7 @@ def build_l1_crosscoder_trainer(cfg: L1ExperimentConfig) -> L1CrosscoderTrainer:
         model=crosscoder,
         wandb_run=wandb_run,
         device=device,
-        save_dir=cfg.save_dir,
-        buffer_size=cfg.train.buffer_size,
-        buffer_refill_ratio=cfg.train.buffer_refill_ratio,
+        save_dir=cfg.save_dir
     )
 
 
