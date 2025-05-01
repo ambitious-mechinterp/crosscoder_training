@@ -60,6 +60,11 @@ class DataConfig(BaseModel):
     token_sequence_loader: HuggingfaceTextDatasetConfig = HuggingfaceTextDatasetConfig()
     activations_harvester: ActivationsHarvesterConfig
     n_tokens_for_norm_estimate: int = 100_000
+    filter_first_n_tokens: int = 1 
+    """
+    Number of initial non-special tokens to filter out from the beginning of each sequence after tokenization.
+    Default is 1, which filters out the token immediately following BOS (position 1).
+    Set to 0 to disable this filtering and only filter special tokens."""
 
 
 class BaseTrainConfig(BaseModel):

@@ -39,17 +39,23 @@ class ModelHookpointActivationsDataloader(ActivationsDataloader[ModelHookpointAc
         activations_harvester: ActivationsHarvester,
         yield_batch_size_B: int,
         n_tokens_for_norm_estimate: int,
+        filter_first_n_tokens: int,
     ):
         self._token_sequence_loader = token_sequence_loader
         self._activations_harvester = activations_harvester
         self._yield_batch_size_B = yield_batch_size_B
+        self._filter_first_n_tokens = filter_first_n_tokens
         self._device = self._activations_harvester._llms[0].W_E.device
 
+        # <<< Log the filtering setting >>>
+        logger.info(f"Dataloader initialized. Filtering first {self._filter_first_n_tokens} non-special tokens from each sequence.")
+
         norm_scaling_factors_MP = estimate_norm_scaling_factor_X(
-            self._activations_iterator_BMPD(),  # don't pass the scaling factors here (because we're computing them!)
+            self._activations_iterator_BMPD(),
             n_tokens_for_norm_estimate,
         )
         self._norm_scaling_factors_MP = norm_scaling_factors_MP
+        # Create the final iterator AFTER norm estimation is done with the correct filtering
         self._iterator = self._activations_iterator_BMPD(norm_scaling_factors_MP)
 
     @property
@@ -72,10 +78,32 @@ class ModelHookpointActivationsDataloader(ActivationsDataloader[ModelHookpointAc
 
     def _activations_iterator_HsMPD(self) -> Iterator[torch.Tensor]:
         for seq in self._token_sequence_loader.get_sequences_batch_iterator():
+            # Shape: (H, S, M, P, D)
             activations_HSMPD = self._activations_harvester.get_activations_HSMPD(seq.tokens_HS)
+            # Shape: (H, S)
+            special_tokens_mask_HS = seq.special_tokens_mask_HS.to(self._device)
+
+            # New filtering logic: filter out special tokens and the first N non-special tokens
+            H, S = seq.tokens_HS.shape
+
+            # Generate original position indices
+            positions_HS = torch.arange(S, device=self._device).unsqueeze(0).expand(H, -1) # Shape: (H, S)
+
+            # Flatten dimensions H and S -> Hs...
             activations_HsMPD = rearrange(activations_HSMPD, "h s m p d -> (h s) m p d")
-            special_tokens_mask_Hs = rearrange(seq.special_tokens_mask_HS, "h s -> (h s)")
-            yield activations_HsMPD[~special_tokens_mask_Hs]
+            special_tokens_mask_Hs = rearrange(special_tokens_mask_HS, "h s -> (h s)")
+            positions_Hs = rearrange(positions_HS, "h s -> (h s)")
+
+            # Create the masks
+            valid_token_mask_Hs = ~special_tokens_mask_Hs
+            # Keep tokens whose original position is strictly greater than the number to filter
+            position_filter_mask_Hs = (positions_Hs > self._filter_first_n_tokens)
+
+            # Combine masks: keep tokens that are NOT special AND are past the initial filter count
+            final_keep_mask_Hs = valid_token_mask_Hs & position_filter_mask_Hs
+
+            # Apply the combined mask
+            yield activations_HsMPD[final_keep_mask_Hs]
 
     def _activations_iterator_BMPD(self, scaling_factors_MP: torch.Tensor | None = None) -> Iterator[torch.Tensor]:
         iterator_HsMPD = self._activations_iterator_HsMPD()
@@ -137,6 +165,10 @@ def build_model_hookpoint_dataloader(
         activations_harvester=activations_harvester,
         yield_batch_size_B=batch_size,
         n_tokens_for_norm_estimate=cfg.n_tokens_for_norm_estimate,
+        filter_first_n_tokens=cfg.filter_first_n_tokens
     )
+
+    if cfg.filter_first_n_tokens > 0:
+        logger.info(f"Filtering first {cfg.filter_first_n_tokens} non-special tokens from each sequence after tokenization.")
 
     return activations_dataloader

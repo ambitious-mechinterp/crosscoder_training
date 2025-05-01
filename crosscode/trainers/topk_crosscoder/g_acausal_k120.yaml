@@ -8,6 +8,7 @@ data:
       #   revision: step142000
       - name: google/gemma-2-2b
     harvesting_batch_size: 8
+  filter_first_n_tokens: 1 #  Number of initial non-special tokens to filter out from the beginning of each sequence after tokenization.
 crosscoder:
   n_latents: 16384
   k: 120
@@ -37,7 +38,7 @@ train:
     learning_rate: 2e-4
     warmup_pct: 0.005
     warmdown_pct: 0.005
-experiment_name: "k120_continuous_optimized_buffer"
+experiment_name: "k120_continuous_buffer_filter_1st_token"
 seed: 10101
 hookpoints: ["blocks.12.hook_resid_post","blocks.13.hook_resid_post","blocks.14.hook_resid_post" ,"blocks.15.hook_resid_post","blocks.16.hook_resid_post", "blocks.17.hook_resid_post", "blocks.18.hook_resid_post", "blocks.19.hook_resid_post","blocks.20.hook_resid_post","blocks.21.hook_resid_post"]
 wandb:
